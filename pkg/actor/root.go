@@ -10,12 +10,12 @@ type RootConfig struct {
 	address string
 }
 
-func (r Root) Error(error) {
-
+func (r Root) Error(err error) {
+	log.Error(err)
 }
 
 func (r Root) NewConnection(conn net.Conn) {
-	connection := Connection{conn: conn, parent: r}
+	connection := ConnHandler{conn: conn, parent: r}
 	connection.Start()
 }
 
