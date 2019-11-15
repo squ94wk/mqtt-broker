@@ -1,5 +1,11 @@
 package action
 
+import (
+	"net"
+
+	"github.com/squ94wk/mqtt-common/pkg/packet"
+)
+
 type Connect struct {
 	packet           packet.Connect
 	conn             net.Conn

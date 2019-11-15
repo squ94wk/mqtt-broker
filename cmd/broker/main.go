@@ -1,9 +1,9 @@
 package main
 
-import "github.com/squ94wk/mqtt-broker/pkg/actor"
+import "github.com/squ94wk/mqtt-broker/pkg/broker"
 
 func main() {
-	root := actor.Root{}
+	broker := broker.Broker{}
 
-	root.Start()
+	broker.Start()
 }

@@ -1,28 +1,21 @@
-package actor
+package client
 
 import (
 	"fmt"
 	"net"
 )
 
-type ConnectionParent interface {
+type ListenerParent interface {
 	Error(error)
 	NewConnection(net.Conn)
 }
 
 type Listener struct {
 	address string
-	parent  ConnectionParent
+	parent  ListenerParent
 }
 
-//func NewListener(address string, parent Parent) *Listener {
-//return &Listener{
-//address: address,
-//parent:  parent,
-//}
-//}
-
-func (l *Listener) Start() {
+func (l Listener) Start() {
 	ln, err := net.Listen("tcp", l.address)
 	if err != nil {
 		l.parent.Error(fmt.Errorf("failed to start listener: failed to start listening on port %s: %v", l.port, err))
@@ -43,7 +36,7 @@ func (l *Listener) Start() {
 	log.Info("Listener stopped")
 }
 
-func (l *Listener) Close() error {
+func (l Listener) Close() error {
 	err := l.Close()
 	if err != nil {
 		return fmt.Errorf("failed to close Listener: %v", err)

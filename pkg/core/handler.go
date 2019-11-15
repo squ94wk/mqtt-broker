@@ -1,16 +1,21 @@
 package core
 
-import "net"
+import (
+	"net"
 
-type HandlerParent struct {
-	Error             (error)
-	OnNewConnectAtion (action.Connect)
+	"github.com/squ94wk/mqtt-broker/pkg/action"
+	"github.com/squ94wk/mqtt-common/pkg/packet"
+)
+
+type PacketHandlerParent struct {
+	Error              (error)
+	OnNewConnectAction (action.Connect)
 }
 
-type Handler struct {
-	parent   HandlerParent
+type PacketHandler struct {
+	parent   PacketHandlerParent
 	shutdown chan interface{}
-	log      zap.Production
+	log      zap.Logger
 }
 
 type InboundPacketBundle struct {
@@ -26,7 +31,7 @@ func init() {
 	inboundPackets := make(chan InboundPacketBundle, 10)
 }
 
-func (h Handler) Start() {
+func (h PacketHandler) Start() {
 	for {
 		select {
 		case p := <-inboundPackets:
@@ -35,7 +40,7 @@ func (h Handler) Start() {
 				connect := p.(*Connect)
 				connectAction := action.NewConnect(connect, p.conn)
 
-				h.parent.OnNewConnectAtion(connectAction)
+				h.parent.OnNewConnectAction(connectAction)
 			}
 
 		case s := <-h.shutdown:
