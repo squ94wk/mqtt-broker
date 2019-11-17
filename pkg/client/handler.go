@@ -15,7 +15,7 @@ type Parent interface {
 type Handler struct {
 	parent   Parent
 	log      *zap.Logger
-	shutdown chan bool
+	shutdown chan struct{}
 }
 
 var (
@@ -30,7 +30,7 @@ func NewHandler(parent Parent, log *zap.Logger) Handler {
 	return Handler{
 		parent:   parent,
 		log:      log,
-		shutdown: make(chan bool, 1),
+		shutdown: make(chan struct{}, 1),
 	}
 }
 
@@ -49,6 +49,10 @@ func (h *Handler) Start() {
 			}
 		}
 	}
+}
+
+func (h *Handler) Shutdown() {
+	h.shutdown <- struct{}{}
 }
 
 func ClientConnected(conn net.Conn) {

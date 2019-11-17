@@ -20,14 +20,7 @@ type Handler struct {
 		sync.Mutex
 		l net.Listener
 	}
-}
-
-var (
-	shutdown chan bool
-)
-
-func init() {
-	shutdown = make(chan bool, 1)
+	shutdown chan struct{}
 }
 
 func NewHandler(parent Parent, log *zap.Logger) Handler {
@@ -37,7 +30,7 @@ func NewHandler(parent Parent, log *zap.Logger) Handler {
 		listener: struct {
 			sync.Mutex
 			l net.Listener
-		}{sync.Mutex{}, nil},
+		}{},
 	}
 }
 
@@ -54,7 +47,7 @@ func (h *Handler) Start() {
 	h.log.Info("accept connections")
 	for {
 		select {
-		case _ = <-shutdown:
+		case _ = <-h.shutdown:
 			h.log.Info("Listener stopped")
 			return
 
@@ -73,7 +66,7 @@ func (h *Handler) Start() {
 
 func (h *Handler) Shutdown() {
 	select {
-	case shutdown <- true:
+	case h.shutdown <- struct{}{}:
 		break
 	default:
 		h.log.Info("listener handler has already received shutdown signal.")

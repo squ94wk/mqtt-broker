@@ -13,27 +13,27 @@ type Parent interface {
 
 type Handler struct {
 	parent   Parent
-	shutdown chan bool
 	log      *zap.Logger
+	shutdown chan struct{}
 }
 
 var (
-	actions chan func(Handler) error
+	actions chan func(*Handler) error
 )
 
 func init() {
-	actions = make(chan func(Handler) error, 16)
+	actions = make(chan func(*Handler) error, 16)
 }
 
 func NewHandler(parent Parent, log *zap.Logger) Handler {
 	return Handler{
 		parent:   parent,
-		shutdown: make(chan bool, 1),
 		log:      log,
+		shutdown: make(chan struct{}, 1),
 	}
 }
 
-func (h Handler) Start() {
+func (h *Handler) Start() {
 	for {
 		select {
 		case action := <-actions:
@@ -48,8 +48,12 @@ func (h Handler) Start() {
 	}
 }
 
+func (h *Handler) Shutdown() {
+	h.shutdown <- struct{}{}
+}
+
 func NewPacket(p packet.Packet) {
-	actions <- func(h Handler) error {
+	actions <- func(h *Handler) error {
 		switch p.(type) {
 		case *packet.Connect:
 			//connectPkt := p.(*packet.Connect)

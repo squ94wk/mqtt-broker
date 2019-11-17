@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/squ94wk/mqtt-broker/pkg/action"
+	"github.com/squ94wk/mqtt-broker/pkg/actor"
 	"github.com/squ94wk/mqtt-broker/pkg/client"
 	"github.com/squ94wk/mqtt-broker/pkg/connect"
 	"github.com/squ94wk/mqtt-broker/pkg/listener"
@@ -24,14 +25,22 @@ func NewBroker() Broker {
 }
 
 func (r Broker) Start() {
-	listener := listener.NewHandler(&r, r.log)
-	go listener.Start()
+	listener := actor.NewScaleGroup(func() actor.Actor {
+		actor := listener.NewHandler(&r, r.log)
+		return &actor
+	})
+	client := actor.NewScaleGroup(func() actor.Actor {
+		actor := client.NewHandler(&r, r.log)
+		return &actor
+	})
+	action := actor.NewScaleGroup(func() actor.Actor {
+		actor := action.NewHandler(&r, r.log)
+		return &actor
+	})
 
-	client := client.NewHandler(&r, r.log)
-	go client.Start()
-
-	action := action.NewHandler(&r, r.log)
-	go action.Start()
+	listener.Add()
+	client.Add()
+	action.Add()
 
 	select {}
 }
