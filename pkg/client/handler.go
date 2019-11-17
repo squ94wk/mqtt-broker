@@ -13,13 +13,8 @@ type Parent interface {
 	Error(error)
 }
 
-type Config interface {
-	ListenAddress() string
-}
-
 type Handler struct {
 	parent Parent
-	config Config
 	log    *zap.Logger
 }
 
@@ -31,10 +26,9 @@ func init() {
 	shutdown = make(chan bool, 1)
 }
 
-func NewHandler(parent Parent, config Config, log *zap.Logger) Handler {
+func NewHandler(parent Parent, log *zap.Logger) Handler {
 	return Handler{
 		parent: parent,
-		config: config,
 		log:    log,
 	}
 }
@@ -42,7 +36,6 @@ func NewHandler(parent Parent, config Config, log *zap.Logger) Handler {
 func (h Handler) Start() {
 	listener := listener.NewHandler(
 		h,
-		h.config,
 		h.log,
 	)
 	listener.Start()

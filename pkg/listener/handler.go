@@ -19,7 +19,6 @@ type Parent interface {
 
 type Handler struct {
 	parent   Parent
-	config   Config
 	log      *zap.Logger
 	listener struct {
 		sync.Mutex
@@ -35,10 +34,9 @@ func init() {
 	shutdown = make(chan bool, 1)
 }
 
-func NewHandler(parent Parent, config Config, log *zap.Logger) Handler {
+func NewHandler(parent Parent, log *zap.Logger) Handler {
 	return Handler{
 		parent: parent,
-		config: config,
 		log:    log,
 		listener: struct {
 			sync.Mutex
@@ -48,9 +46,9 @@ func NewHandler(parent Parent, config Config, log *zap.Logger) Handler {
 }
 
 func (h Handler) Start() {
-	ln, err := net.Listen("tcp", h.config.ListenAddress())
+	ln, err := net.Listen("tcp", "localhost:1883")
 	if err != nil {
-		h.parent.Error(fmt.Errorf("failed to start listener: failed to start listening on address %s: %v", h.config.address, err))
+		h.parent.Error(fmt.Errorf("failed to start listener: failed to start listening on address %s: %v", "localhost:1883", err))
 	}
 
 	h.listener.Lock()

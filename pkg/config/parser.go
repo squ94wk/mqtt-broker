@@ -8,19 +8,6 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-type Client struct {
-	address string `yaml:"address", envconfig:"SERVER_ADDRESS"`
-}
-
-type Server struct {
-	Client
-}
-
-type Config struct {
-	Server struct {
-	} `yaml:"server"`
-}
-
 func Parse() Config {
 	var config Config
 	fromFile(&config)
