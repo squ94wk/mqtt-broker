@@ -1,4 +1,4 @@
-package conn
+package client
 
 import (
 	"fmt"
@@ -8,36 +8,32 @@ import (
 	"github.com/squ94wk/mqtt-common/pkg/packet"
 )
 
-type Parent interface {
+type ClientParent interface {
 	Error(error)
 	OnPacket(packet.Packet)
 }
 
-type Handler struct {
-	parent     Parent
+type Client struct {
+	parent     ClientParent
 	conn       net.Conn
 	shutdown   chan bool
 	packetsOut chan packet.Packet
 }
 
-var (
-	conns chan func(*Handler) error
-)
-
-func NewHandler(conn net.Conn, parent Parent) Handler {
-	return Handler{
+func NewClient(conn net.Conn, parent ClientParent) Client {
+	return Client{
 		parent:   parent,
 		conn:     conn,
 		shutdown: make(chan bool, 1),
 	}
 }
 
-func (h Handler) Start() {
+func (h Client) Start() {
 	go h.write()
 	h.read()
 }
 
-func (h Handler) read() {
+func (h Client) read() {
 	for {
 		select {
 		case _ = <-h.shutdown:
@@ -60,7 +56,7 @@ func (h Handler) read() {
 	}
 }
 
-func (h Handler) write() {
+func (h Client) write() {
 	for {
 		var pkt packet.Packet
 		select {
@@ -74,7 +70,7 @@ func (h Handler) write() {
 	}
 }
 
-func (h Handler) readNext() (packet.Packet, error) {
+func (h Client) readNext() (packet.Packet, error) {
 	var header packet.Header
 	if err := packet.ReadHeader(h.conn, &header); err != nil {
 		return nil, fmt.Errorf("failed to read packet: failed to read header: %v", err)

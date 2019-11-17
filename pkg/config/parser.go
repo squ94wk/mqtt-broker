@@ -16,13 +16,6 @@ func Parse() Config {
 	return config
 }
 
-func defaults() Config {
-	var config Config
-	config.Server.address = "localhost:1883"
-
-	return config
-}
-
 func fromFile(c *Config) {
 	f, err := os.Open("config.yml")
 	if err != nil {
