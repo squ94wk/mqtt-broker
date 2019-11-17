@@ -1,4 +1,4 @@
-package root
+package broker
 
 import (
 	"fmt"
@@ -13,17 +13,17 @@ import (
 	"go.uber.org/zap"
 )
 
-type Root struct {
+type Broker struct {
 	log *zap.Logger
 }
 
-func NewBroker() Root {
-	return Root{
+func NewBroker() Broker {
+	return Broker{
 		log: log.Logger,
 	}
 }
 
-func (r Root) Start() {
+func (r Broker) Start() {
 	listener := listener.NewHandler(&r, r.log)
 	go listener.Start()
 
@@ -36,20 +36,20 @@ func (r Root) Start() {
 	select {}
 }
 
-func (r *Root) Error(err error) {
+func (r *Broker) Error(err error) {
 	r.log.Error(fmt.Sprintf("error occured %v", err))
 }
 
-func (r *Root) OnNewConnection(conn net.Conn) {
+func (r *Broker) OnNewConnection(conn net.Conn) {
 	r.log.Info("new connection")
 	client.ClientConnected(conn)
 }
 
-func (r *Root) OnPacket(packet packet.Packet) {
+func (r *Broker) OnPacket(packet packet.Packet) {
 	r.log.Info("new packet")
 	action.NewPacket(packet)
 }
 
-func (r *Root) OnConnectAction(action connect.Action) {
+func (r *Broker) OnConnectAction(action connect.Action) {
 	r.log.Info("new connect action")
 }
