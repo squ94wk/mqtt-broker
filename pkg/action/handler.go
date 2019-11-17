@@ -3,6 +3,7 @@ package action
 import (
 	"github.com/squ94wk/mqtt-broker/pkg/connect"
 	"github.com/squ94wk/mqtt-common/pkg/packet"
+	"go.uber.org/zap"
 )
 
 type Parent interface {
@@ -13,6 +14,7 @@ type Parent interface {
 type Handler struct {
 	parent   Parent
 	shutdown chan bool
+	log      *zap.Logger
 }
 
 var (
@@ -21,6 +23,14 @@ var (
 
 func init() {
 	actions = make(chan func(Handler) error, 16)
+}
+
+func NewHandler(parent Parent, log *zap.Logger) Handler {
+	return Handler{
+		parent:   parent,
+		shutdown: make(chan bool, 1),
+		log:      log,
+	}
 }
 
 func (h Handler) Start() {
@@ -46,6 +56,7 @@ func NewPacket(p packet.Packet) {
 			_ = p.(*packet.Connect)
 			action := connect.NewAction() // pass conn pkt contents
 			h.parent.OnConnectAction(action)
+
 		default:
 			break
 		}

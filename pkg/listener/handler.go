@@ -8,10 +8,6 @@ import (
 	"go.uber.org/zap"
 )
 
-type Config interface {
-	ListenAddress() string
-}
-
 type Parent interface {
 	Error(error)
 	OnNewConnection(net.Conn)
@@ -45,7 +41,7 @@ func NewHandler(parent Parent, log *zap.Logger) Handler {
 	}
 }
 
-func (h Handler) Start() {
+func (h *Handler) Start() {
 	ln, err := net.Listen("tcp", "localhost:1883")
 	if err != nil {
 		h.parent.Error(fmt.Errorf("failed to start listener: failed to start listening on address %s: %v", "localhost:1883", err))
@@ -59,7 +55,8 @@ func (h Handler) Start() {
 	for {
 		select {
 		case _ = <-shutdown:
-			break
+			h.log.Info("Listener stopped")
+			return
 
 		default:
 			conn, err := ln.Accept()
@@ -72,10 +69,9 @@ func (h Handler) Start() {
 			h.parent.OnNewConnection(conn)
 		}
 	}
-	h.log.Info("Listener stopped")
 }
 
-func (h Handler) Shutdown() {
+func (h *Handler) Shutdown() {
 	select {
 	case shutdown <- true:
 		break

@@ -9,6 +9,7 @@ import (
 
 type Parent interface {
 	Error(error)
+	OnPacket(packet.Packet)
 }
 
 type Handler struct {
@@ -21,6 +22,10 @@ var (
 	actions chan func(*Handler) error
 )
 
+func init() {
+	actions = make(chan func(*Handler) error, 16)
+}
+
 func NewHandler(parent Parent, log *zap.Logger) Handler {
 	return Handler{
 		parent:   parent,
@@ -30,11 +35,14 @@ func NewHandler(parent Parent, log *zap.Logger) Handler {
 }
 
 func (h *Handler) Start() {
+	h.log.Debug("start client handler")
 	for {
 		select {
 		case _ = <-h.shutdown:
 			break
+
 		case action := <-actions:
+			h.log.Debug("call action")
 			err := action(h)
 			if err != nil {
 				h.parent.Error(err)
@@ -45,7 +53,7 @@ func (h *Handler) Start() {
 
 func ClientConnected(conn net.Conn) {
 	actions <- func(h *Handler) error {
-		client := NewClient(conn, h)
+		client := NewClient(conn, h, h.log)
 		go client.Start()
 		return nil
 	}
@@ -55,6 +63,6 @@ func (h Handler) Error(err error) {
 	h.parent.Error(err)
 }
 
-func (h Handler) OnPacket(packet.Packet) {
-
+func (h Handler) OnPacket(pkt packet.Packet) {
+	h.parent.OnPacket(pkt)
 }
