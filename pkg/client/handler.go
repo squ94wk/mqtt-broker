@@ -1,138 +1,62 @@
 package client
 
 import (
-	"fmt"
-	"io"
 	"net"
-	"sync"
 
+	"github.com/squ94wk/mqtt-broker/pkg/client/conn"
+	"github.com/squ94wk/mqtt-broker/pkg/client/listener"
 	"github.com/squ94wk/mqtt-common/pkg/packet"
+	"go.uber.org/zap"
 )
 
-type ConnHandlerParent interface {
+type Parent interface {
 	Error(error)
-	OnPacket(packet.Packet, net.Conn)
 }
 
-type ConnHandler struct {
-	parent ClientHandlerParent
-	client ActiveClient
+type Config interface {
+	ListenAddress() string
+}
+
+type Handler struct {
+	parent Parent
+	config Config
+	log    *zap.Logger
 }
 
 var (
-	outboundQueue chan packet.Packet
+	shutdown chan bool
 )
 
-func NewConnHandler(parent ConnHandlerParent) {
-	return ConnHandler{
+func init() {
+	shutdown = make(chan bool, 1)
+}
+
+func NewHandler(parent Parent, config Config, log *zap.Logger) Handler {
+	return Handler{
 		parent: parent,
-		state:  {sync.Mutex, Initial},
+		config: config,
+		log:    log,
 	}
 }
 
-func (c ConnHandler) Start() {
-	go read()
+func (h Handler) Start() {
+	listener := listener.NewHandler(
+		h,
+		h.config,
+		h.log,
+	)
+	listener.Start()
 }
 
-func (c ConnHandler) read() {
-	for {
-		select {
-		case signal := <-shutdown:
-			break
-
-		default:
-			pkt, err := c.readNext()
-			if err != nil {
-				c.parent.Error(fmt.Errorf("failed to read packet from conn: %v", err))
-				c.stop()
-				break
-			}
-
-			c.parent.OnPacket(pkt, c.client)
-		}
-	}
+func (h Handler) Error(err error) {
+	h.parent.Error(err)
 }
 
-func (c ConnHandler) write() {
-	for {
-		var pkt packet.Packet
-		select {
-		case pkt = <-outboundQueue:
-			err := pkt.Write(c.client.conn)
-			if err != nil {
-				c.parent.Error(fmt.Errorf("failed to write packet to conn: %v", err))
-				break
-			}
-		}
-	}
+func (h Handler) OnNewConnection(connection net.Conn) {
+	client := conn.NewHandler(connection, h)
+	go client.Start()
 }
 
-func (c ConnHandler) readNext() (packet.Packet, error) {
-	var header packet.Header
-	if err := packet.ReadHeader(c.client.conn, &header); err != nil {
-		return nil, fmt.Errorf("failed to read packet: failed to read header: %v", err)
-	}
+func (h Handler) OnPacket(packet.Packet) {
 
-	pkt, err := readRestOfPacket(c.client.conn, header)
-	if err != nil {
-		return nil, err
-	}
-
-	return pkt, nil
-}
-
-func readRestOfPacket(reader io.Reader, header packet.Header) (packet.Packet, error) {
-	switch header.MsgType() {
-	case packet.CONNECT:
-		if header.Flags() != 0 {
-			return nil, fmt.Errorf("failed to read packet: invalid fixed header of Connect packet: invalid flags '%d'", header.Flags())
-		}
-		var connect packet.Connect
-		err := packet.ReadConnect(reader, &connect, header)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read Connect packet: %v", err)
-		}
-		log.Info("read Connect packet")
-		return &connect, nil
-
-	case packet.PUBLISH:
-		//var publish packet.Publish
-		//err := packet.ReadPublish(reader, &publish, header)
-		//if err != nil {
-		//return nil, fmt.Errorf("failed to read Publish packet: %v", err)
-		//}
-		//log.Info("read Publish packet")
-		//return &publish, nil
-
-	case packet.CONNACK:
-	case packet.PUBACK:
-	case packet.PUBREC:
-	case packet.PUBREL:
-	case packet.PUBCOMP:
-	case packet.SUBSCRIBE:
-	case packet.SUBACK:
-	case packet.UNSUBSCRIBE:
-	case packet.UNSUBACK:
-	case packet.PINGREQ:
-	case packet.PINGRESP:
-		panic("implement me")
-
-	case packet.DISCONNECT:
-		//if header.Flags() != 0 {
-		//return nil, fmt.Errorf("failed to read packet: invalid fixed header of Disconnect packet: invalid flags '%d'", header.Flags())
-		//}
-		//var disconnect packet.Disconnect
-		//err := packet.ReadDisconnect(reader, &disconnect, header)
-		//if err != nil {
-		//return nil, fmt.Errorf("failed to read Disconnect packet: %v", err)
-		//}
-		//log.Info("read Disconnect packet")
-		//return &disconnect, nil
-
-	case packet.AUTH:
-		panic("implement me")
-
-	default:
-		return nil, fmt.Errorf("header with invalid packet type '%v'", header.MsgType())
-	}
 }

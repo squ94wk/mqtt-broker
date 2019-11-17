@@ -1,9 +1,14 @@
 package main
 
-import "github.com/squ94wk/mqtt-broker/pkg/broker"
+import (
+	"github.com/squ94wk/mqtt-broker/pkg/config"
+	"github.com/squ94wk/mqtt-broker/pkg/root"
+)
 
 func main() {
-	broker := broker.Broker{}
-
+	conf := config.ParseConfig()
+	broker := root.NewBroker(
+		conf,
+	)
 	broker.Start()
 }
