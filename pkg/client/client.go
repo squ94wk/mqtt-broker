@@ -8,70 +8,93 @@ import (
 	"go.uber.org/zap"
 )
 
-type ClientParent interface {
+type clientParent interface {
 	Error(error)
-	OnPacket(packet.Packet)
 }
 
 type Client struct {
-	parent     ClientParent
-	conn       net.Conn
-	shutdown   chan bool
-	log        *zap.Logger
-	packetsOut chan packet.Packet
+	parent   clientParent
+	conn     net.Conn
+	buf      chan packet.Packet
+	err      chan error
+	out      chan packet.Packet
+	shutdown chan bool
+	log      *zap.Logger
 }
 
-func NewClient(conn net.Conn, parent ClientParent, log *zap.Logger) Client {
+func NewClient(parent clientParent, conn net.Conn, log *zap.Logger) Client {
 	return Client{
-		parent:     parent,
-		conn:       conn,
-		shutdown:   make(chan bool, 1),
-		log:        log,
-		packetsOut: make(chan packet.Packet, 4),
+		parent:   parent,
+		conn:     conn,
+		buf:      make(chan packet.Packet, 4),
+		out:      make(chan packet.Packet, 4),
+		shutdown: make(chan bool, 1),
+		log:      log,
 	}
 }
 
-func (h Client) Start() {
-	h.log.Debug("client started")
-	go h.write()
-	h.read()
+func (c Client) Start() {
+	c.log.Debug("client started")
+	go c.write()
+	c.read()
 }
 
-func (h Client) read() {
+func (c Client) Packets() <-chan packet.Packet {
+	return c.buf
+}
+
+func (c Client) Errors() <-chan error {
+	return c.err
+}
+
+func (c Client) Deliver(p packet.Packet) {
+	c.out <- p
+}
+
+func (c Client) Close() error {
+	c.log.Debug("closing client")
+	err := c.conn.Close()
+	if err != nil {
+		return fmt.Errorf("failed to Close() client: %v", err)
+	}
+	return nil
+}
+
+func (c Client) read() {
 	for {
 		select {
-		case _ = <-h.shutdown:
+		case _ = <-c.shutdown:
 			break
 
 		default:
-			pkt, err := packet.ReadPacket(h.conn)
+			pkt, err := packet.ReadPacket(c.conn)
 			if err != nil {
-				h.parent.Error(fmt.Errorf("failed to read packet from conn: %v", err))
-				err := h.conn.Close()
+				c.parent.Error(fmt.Errorf("failed to read packet from conn: %v", err))
+				err := c.conn.Close()
 				if err != nil {
-					h.parent.Error(fmt.Errorf("failed to close connection after error: %v", err))
+					c.parent.Error(fmt.Errorf("failed to close connection after error: %v", err))
 				}
 				return
 			}
 
-			h.log.Debug("read packet")
-			h.parent.OnPacket(pkt)
+			c.log.Debug("read packet", zap.Stringer("packet", pkt))
+			c.buf <- pkt
 		}
 	}
 }
 
-func (h Client) write() {
+func (c Client) write() {
 	for {
 		var pkt packet.Packet
 		select {
-		case pkt = <-h.packetsOut:
-			h.log.Debug("write packet")
-			err := pkt.Write(h.conn)
+		case pkt = <-c.out:
+			c.log.Debug("write packet")
+			err := pkt.Write(c.conn)
 			if err != nil {
-				h.parent.Error(fmt.Errorf("failed to write packet to conn: %v", err))
-				err := h.conn.Close()
+				c.parent.Error(fmt.Errorf("failed to write packet to conn: %v", err))
+				err := c.conn.Close()
 				if err != nil {
-					h.parent.Error(fmt.Errorf("failed to close connection after error: %v", err))
+					c.parent.Error(fmt.Errorf("failed to close connection after error: %v", err))
 				}
 				return
 			}

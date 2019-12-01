@@ -7,10 +7,9 @@ import (
 	"github.com/squ94wk/mqtt-broker/pkg/action"
 	"github.com/squ94wk/mqtt-broker/pkg/actor"
 	"github.com/squ94wk/mqtt-broker/pkg/client"
-	"github.com/squ94wk/mqtt-broker/pkg/connect"
 	"github.com/squ94wk/mqtt-broker/pkg/listener"
 	"github.com/squ94wk/mqtt-broker/pkg/log"
-	"github.com/squ94wk/mqtt-common/pkg/packet"
+	"github.com/squ94wk/mqtt-broker/pkg/session"
 	"go.uber.org/zap"
 )
 
@@ -29,18 +28,20 @@ func (r Broker) Start() {
 		actor := listener.NewHandler(&r, r.log)
 		return &actor
 	})
-	client := actor.NewScaleGroup(func() actor.Actor {
-		actor := client.NewHandler(&r, r.log)
-		return &actor
-	})
-	action := actor.NewScaleGroup(func() actor.Actor {
-		actor := action.NewHandler(&r, r.log)
+
+	//client := actor.NewScaleGroup(func() actor.Actor {
+	//actor := action.NewHandler(&r, r.log)
+	//return &actor
+	//})
+
+	session := actor.NewScaleGroup(func() actor.Actor {
+		actor := session.NewHandler(&r, r.log)
 		return &actor
 	})
 
 	listener.Add()
-	client.Add()
-	action.Add()
+	//client.Add()
+	session.Add()
 
 	select {}
 }
@@ -51,14 +52,13 @@ func (r *Broker) Error(err error) {
 
 func (r *Broker) OnNewConnection(conn net.Conn) {
 	r.log.Info("new connection")
-	client.ClientConnected(conn)
+	client := client.NewClient(r, conn, r.log)
+	handler := action.NewHandler(r, client, r.log)
+
+	go client.Start()
+	go handler.Start()
 }
 
-func (r *Broker) OnPacket(packet packet.Packet) {
-	r.log.Info("new packet")
-	action.NewPacket(packet)
-}
+func (r *Broker) SessionTakeover(s string) {
 
-func (r *Broker) OnConnectAction(action connect.Action) {
-	r.log.Info("new connect action")
 }
