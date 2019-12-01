@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"io"
 	"net"
 
 	"github.com/squ94wk/mqtt-common/pkg/packet"
@@ -15,10 +16,9 @@ type clientParent interface {
 type Client struct {
 	parent   clientParent
 	conn     net.Conn
-	buf      chan packet.Packet
-	err      chan error
-	out      chan packet.Packet
-	shutdown chan bool
+	buf      chan func() (packet.Packet, error)
+	actions  chan func() error
+	shutdown chan struct{}
 	log      *zap.Logger
 }
 
@@ -26,37 +26,55 @@ func NewClient(parent clientParent, conn net.Conn, log *zap.Logger) Client {
 	return Client{
 		parent:   parent,
 		conn:     conn,
-		buf:      make(chan packet.Packet, 4),
-		out:      make(chan packet.Packet, 4),
-		shutdown: make(chan bool, 1),
+		buf:      make(chan func() (packet.Packet, error), 4),
+		actions:  make(chan func() error, 4),
+		shutdown: make(chan struct{}, 1),
 		log:      log,
 	}
 }
 
 func (c Client) Start() {
 	c.log.Debug("client started")
-	go c.write()
-	c.read()
+	wait := make(chan struct{}, 1)
+	go func() {
+		defer func() {
+			recover()
+			wait <- struct{}{}
+		}()
+		c.read()
+	}()
+
+	for action := range c.actions {
+		err := action()
+		if err != nil {
+			c.handleError(err)
+			c.shutdown <- struct{}{}
+			break
+		}
+	}
+
+	<-wait
+	err := c.conn.Close()
+	if err != nil {
+		c.parent.Error(fmt.Errorf("failed to Close() client: %v", err))
+	}
 }
 
-func (c Client) Packets() <-chan packet.Packet {
+func (c Client) Packets() <-chan func() (packet.Packet, error) {
 	return c.buf
 }
 
-func (c Client) Errors() <-chan error {
-	return c.err
-}
-
-func (c Client) Deliver(p packet.Packet) {
-	c.out <- p
+func (c Client) Deliver(pkt packet.Packet) {
+	c.actions <- func() error {
+		c.log.Debug("write packet")
+		return pkt.Write(c.conn)
+	}
 }
 
 func (c Client) Close() error {
 	c.log.Debug("closing client")
-	err := c.conn.Close()
-	if err != nil {
-		return fmt.Errorf("failed to Close() client: %v", err)
-	}
+	close(c.actions)
+
 	return nil
 }
 
@@ -64,40 +82,36 @@ func (c Client) read() {
 	for {
 		select {
 		case _ = <-c.shutdown:
-			break
+			return
 
 		default:
 			pkt, err := packet.ReadPacket(c.conn)
-			if err != nil {
-				c.parent.Error(fmt.Errorf("failed to read packet from conn: %v", err))
-				err := c.conn.Close()
-				if err != nil {
-					c.parent.Error(fmt.Errorf("failed to close connection after error: %v", err))
-				}
-				return
+			c.buf <- func() (packet.Packet, error) {
+				return pkt, err
 			}
 
+			if err != nil {
+				return
+			}
 			c.log.Debug("read packet", zap.Stringer("packet", pkt))
-			c.buf <- pkt
 		}
 	}
 }
 
-func (c Client) write() {
-	for {
-		var pkt packet.Packet
-		select {
-		case pkt = <-c.out:
-			c.log.Debug("write packet")
-			err := pkt.Write(c.conn)
-			if err != nil {
-				c.parent.Error(fmt.Errorf("failed to write packet to conn: %v", err))
-				err := c.conn.Close()
-				if err != nil {
-					c.parent.Error(fmt.Errorf("failed to close connection after error: %v", err))
-				}
-				return
-			}
-		}
+func (c Client) handleError(err error) {
+	switch {
+	case err == io.ErrUnexpectedEOF:
+		c.log.Info("unexpected EOF")
+		break
+	case err == io.EOF:
+		c.log.Info("EOF")
+		break
+	default:
+		c.log.Warn("unexpected error occured", zap.Error(err))
+	}
+
+	err = c.conn.Close()
+	if err != nil {
+		c.parent.Error(fmt.Errorf("failed to close connection after error: %v", err))
 	}
 }

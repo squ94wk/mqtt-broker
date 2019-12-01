@@ -70,7 +70,7 @@ func BindToSession(clientId string, cleanStart bool, client client, callback fun
 			h.log.Debug("found session, want takeover")
 			oldClient := session.client
 			session.Replace(client)
-			h.SessionTakeover(clientId, oldClient)
+			SessionTakeover(clientId, oldClient)
 			break
 
 		case !ok: // put clean session
@@ -98,5 +98,6 @@ func SessionTakeover(clientId string, client client) {
 	actions <- func(h *Handler) error {
 		// deliver will message
 		// happily close conn
+		return nil
 	}
 }

@@ -13,8 +13,7 @@ type parent interface {
 }
 
 type client interface {
-	Packets() <-chan packet.Packet
-	Errors() <-chan error
+	Packets() <-chan func() (packet.Packet, error)
 	Deliver(packet.Packet)
 	Close() error
 }
@@ -47,18 +46,21 @@ func (h Handler) Start() {
 		case _ = <-h.shutdown:
 			return
 
-		case pkt := <-h.client.Packets():
-			h.log.Debug("handle control packet")
-			s, err := state.onPacket(h, pkt)
+		case nextPkt := <-h.client.Packets():
+			pkt, err := nextPkt()
 			if err != nil {
-				h.closeWithError(packet.UnspecifiedError, fmt.Sprintf("server error"))
+				h.log.Debug("handle error")
+				s, err := state.onError(h, err)
+				if err != nil {
+					h.closeWithError(packet.UnspecifiedError, fmt.Sprintf("server error"))
+				}
+
+				state = s
+				break
 			}
 
-			state = s
-
-		case e := <-h.client.Errors():
-			h.log.Debug("handle error")
-			s, err := state.onError(h, e)
+			h.log.Debug("handle control packet")
+			s, err := state.onPacket(h, pkt)
 			if err != nil {
 				h.closeWithError(packet.UnspecifiedError, fmt.Sprintf("server error"))
 			}
