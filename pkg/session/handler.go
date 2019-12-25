@@ -6,7 +6,7 @@ import (
 
 type parent interface {
 	Error(error)
-	SessionTakeover(clientId string)
+	SessionTakeover(clientID string)
 }
 
 type Handler struct {
@@ -52,52 +52,61 @@ func (h Handler) Shutdown() {
 	h.shutdown <- struct{}{}
 }
 
-func BindToSession(clientId string, cleanStart bool, client client, callback func(*Session, bool, error)) {
+func BindToSession(clientID string, cleanStart bool, client client) (session *Session, sessionPresent bool, callerErr error) {
+	wait := make(chan struct{}, 1)
 	actions <- func(h *Handler) error {
-		var session *Session
-		presentSession, ok := store[clientId]
+		existingSession, ok := store[clientID]
 
 		switch {
 		case ok && cleanStart: // replace with clean session
 			h.log.Debug("found session, but want clean start")
-			CleanSession(presentSession)
+			CleanSession(existingSession)
 
-			session = NewLocalSession(clientId, client)
-			store[clientId] = session
+			session = NewLocalSession(clientID, client)
+			store[clientID] = session
 			break
 
 		case ok && !cleanStart: // take over session
 			h.log.Debug("found session, want takeover")
 			oldClient := session.client
 			session.Replace(client)
-			SessionTakeover(clientId, oldClient)
+			SessionTakeover(clientID, oldClient)
 			break
 
 		case !ok: // put clean session
-			h.log.Debug("didn't find session, start clean", zap.String("clientId", clientId))
-			session = NewLocalSession(clientId, client)
-			store[clientId] = session
+			h.log.Debug("didn't find session, start clean", zap.String("clientID", clientID))
+			session = NewLocalSession(clientID, client)
+			store[clientID] = session
 		}
 
-		callback(session, ok && !cleanStart, nil)
+		sessionPresent = ok && !cleanStart
+		wait <- struct{}{}
+
 		return nil
 	}
+	//TODO: select on cancel context here?
+	<-wait
+	return
 }
 
 func CleanSession(s *Session) {
 	actions <- func(h *Handler) error {
 		h.log.Debug("clean session")
-		// deliver will message
-		err := s.client.Close()
 		// remove subscriptions
-		return err
+		// look up will message
+		// deliver will message
+		// disconnect gracefully
+		//err := s.client.Disconnect(packet.SessionTakenOver)
+		return nil
 	}
 }
 
-func SessionTakeover(clientId string, client client) {
+func SessionTakeover(clientID string, client client) {
 	actions <- func(h *Handler) error {
+		// look up will message
 		// deliver will message
-		// happily close conn
+		// disconnect gracefully
+		//err := s.client.Disconnect(packet.SessionTakenOver)
 		return nil
 	}
 }

@@ -6,6 +6,6 @@ import (
 
 func main() {
 	//conf := config.ParseConfig()
-	broker := broker.NewBroker()
-	broker.Start()
+	b := broker.NewBroker()
+	b.Start()
 }

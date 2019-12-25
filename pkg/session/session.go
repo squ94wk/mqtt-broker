@@ -1,9 +1,8 @@
 package session
 
 import (
+	"github.com/squ94wk/mqtt-broker/pkg/message"
 	"sync"
-
-	"github.com/squ94wk/mqtt-common/pkg/packet"
 )
 
 type Session struct {
@@ -13,8 +12,11 @@ type Session struct {
 }
 
 type client interface {
-	Deliver(packet.Packet)
-	Close() error
+	Deliver(message.Message)
+}
+
+func (s Session) ClientID() string {
+	return s.clientId
 }
 
 func NewLocalSession(clientId string, client client) *Session {

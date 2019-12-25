@@ -1,4 +1,4 @@
-package client
+package connection
 
 import (
 	"fmt"
@@ -9,21 +9,22 @@ import (
 	"go.uber.org/zap"
 )
 
-type clientParent interface {
+type parent interface {
 	Error(error)
 }
 
-type Client struct {
-	parent   clientParent
-	conn     net.Conn
-	buf      chan func() (packet.Packet, error)
-	actions  chan func() error
-	shutdown chan struct{}
-	log      *zap.Logger
+type Connection struct {
+	parent      parent
+	conn        net.Conn
+	buf         chan func() (packet.Packet, error)
+	actions     chan func() error
+	finalAction func() error
+	shutdown    chan struct{}
+	log         *zap.Logger
 }
 
-func NewClient(parent clientParent, conn net.Conn, log *zap.Logger) Client {
-	return Client{
+func NewConnection(parent parent, conn net.Conn, log *zap.Logger) Connection {
+	return Connection{
 		parent:   parent,
 		conn:     conn,
 		buf:      make(chan func() (packet.Packet, error), 4),
@@ -33,7 +34,7 @@ func NewClient(parent clientParent, conn net.Conn, log *zap.Logger) Client {
 	}
 }
 
-func (c Client) Start() {
+func (c Connection) Start() {
 	c.log.Debug("client started")
 	wait := make(chan struct{}, 1)
 	go func() {
@@ -54,31 +55,48 @@ func (c Client) Start() {
 	}
 
 	<-wait
+	if c.finalAction != nil {
+		err := c.finalAction()
+		if err != nil {
+			c.parent.Error(fmt.Errorf("failed to perform final action: %v", err))
+		}
+	}
+
 	err := c.conn.Close()
 	if err != nil {
 		c.parent.Error(fmt.Errorf("failed to Close() client: %v", err))
 	}
 }
 
-func (c Client) Packets() <-chan func() (packet.Packet, error) {
+func (c Connection) Packets() <-chan func() (packet.Packet, error) {
 	return c.buf
 }
 
-func (c Client) Deliver(pkt packet.Packet) {
+func (c Connection) Deliver(pkt packet.Packet) {
 	c.actions <- func() error {
 		c.log.Debug("write packet")
-		return pkt.Write(c.conn)
+		_, err := pkt.WriteTo(c.conn)
+		return err
 	}
 }
 
-func (c Client) Close() error {
+//DeliverFinally instructs that a packet is delivered after all actions are performed
+//and just before the tcp connection is closed.
+func (c Connection) DeliverFinally(pkt packet.Packet) {
+	c.finalAction = func() error {
+		c.log.Debug("final action: deliver packet")
+		_, err := pkt.WriteTo(c.conn)
+		return err
+	}
+}
+
+func (c Connection) Close() error {
 	c.log.Debug("closing client")
 	close(c.actions)
-
 	return nil
 }
 
-func (c Client) read() {
+func (c Connection) read() {
 	for {
 		select {
 		case _ = <-c.shutdown:
@@ -93,12 +111,12 @@ func (c Client) read() {
 			if err != nil {
 				return
 			}
-			c.log.Debug("read packet", zap.Stringer("packet", pkt))
+			c.log.Debug("read packet", zap.String("packet", fmt.Sprintf("%+v", pkt)))
 		}
 	}
 }
 
-func (c Client) handleError(err error) {
+func (c Connection) handleError(err error) {
 	switch {
 	case err == io.ErrUnexpectedEOF:
 		c.log.Info("unexpected EOF")
