@@ -62,7 +62,6 @@ func BindToSession(clientID string, cleanStart bool, client client) (session *Se
 		case ok && cleanStart: // replace with clean session
 			h.log.Debug("found session, but want clean start")
 			CleanSession(existingSession)
-
 			session = NewLocalSession(clientID, client)
 			store[clientID] = session
 			break

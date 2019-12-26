@@ -41,25 +41,19 @@ func NewHandler(parent parent, conn *connection.Connection, log *zap.Logger) Han
 
 func (h Handler) Start() {
 	h.log.Debug("client handler started")
-	go func() {
-		for {
-			select {
-			case reading := <-h.conn.Packets():
-				pkt, err := reading()
-				if err != nil {
-					h.log.Error(fmt.Sprintf("failed to handle inbound packet: %v", err))
-					//TODO: handle properly
-					return
-				}
-				h.handleInboundPacket(pkt) //flow
-			}
-		}
-	}()
-
 	for {
 		select {
 		case _ = <-h.shutdown:
 			return
+
+		case reading := <-h.conn.Packets():
+			pkt, err := reading()
+			if err != nil {
+				h.log.Error(fmt.Sprintf("failed to handle inbound packet: %v", err))
+				//TODO: handle properly
+				return
+			}
+			h.handleInboundPacket(pkt) //flow
 
 		case action := <-h.actions:
 			err := action()
@@ -97,23 +91,14 @@ func (h Handler) Disconnect(reason packet.DisconnectReason, reasonMsg string) {
 	}
 }
 
-func (h Handler) performConnect(clientId string, cleanStart bool) (assignedID string, sessionPresent bool, callerErr error) {
-	wait := make(chan struct{}, 1)
+func (h Handler) performConnect(clientId string, cleanStart bool) (string, bool, error) {
 	//delegate work to the handler's main goroutine as an action
-	h.actions <- func() error {
-		h.log.Debug("perform connect", zap.String("clientId", clientId), zap.Bool("clean start", cleanStart))
-		s, present, err := session.BindToSession(clientId, cleanStart, &h)
-		if err != nil {
-			callerErr = err
-		} else {
-			assignedID = s.ClientID()
-			sessionPresent = present
-		}
-		wait <- struct{}{}
-		return nil
+	h.log.Debug("perform connect", zap.String("clientId", clientId), zap.Bool("clean start", cleanStart))
+	s, present, err := session.BindToSession(clientId, cleanStart, &h)
+	if err != nil {
+		return "", false, err
 	}
-	<-wait
-	return
+	return s.ClientID(), present, nil
 	// session (clean start or persisted)
 	//   assigned client id
 
