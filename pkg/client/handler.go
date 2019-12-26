@@ -16,7 +16,7 @@ type parent interface {
 
 type Handler struct {
 	parent   parent
-	conn     connection.Connection
+	conn     *connection.Connection
 	flow     flow
 	actions  chan func() error
 	shutdown chan struct{}
@@ -28,7 +28,7 @@ type flow interface {
 	onError(Handler, error) flow
 }
 
-func NewHandler(parent parent, conn connection.Connection, log *zap.Logger) Handler {
+func NewHandler(parent parent, conn *connection.Connection, log *zap.Logger) Handler {
 	return Handler{
 		parent:   parent,
 		conn:     conn,
@@ -79,32 +79,30 @@ func (h Handler) Deliver(msg message.Message) {
 	}
 }
 
-//func (h Handler) Disconnect(reason packet.DisconnectReason, reasonMsg string) {
-//	h.actions <- func() error {
-//		var disconnect packet.Disconnect
-//		h.conn.DeliverFinally(disconnect)
-//		err := h.conn.Close()
-//		if err != nil {
-//			h.parent.Error()
-//		}
-//		return nil
-//	}
-//}
-
-//func (c Handler) Disconnect(reason packet.DisconnectReason) {
-//	c.actions <- func() error {
-//		//TODO: make disconnect packet
-//		c.conn.Deliver(disconnect)
-//		return nil
-//	}
-//}
+func (h Handler) Disconnect(reason packet.DisconnectReason, reasonMsg string) {
+	h.actions <- func() error {
+		var disconnect packet.Disconnect
+		disconnect.SetDisconnectReason(reason)
+		props := packet.NewProperties()
+		if reasonMsg != "" {
+			props.Add(packet.NewProperty(packet.ReasonString, packet.StringPropPayload(reasonMsg)))
+		}
+		disconnect.SetProps(props)
+		h.conn.DeliverFinally(disconnect)
+		err := h.conn.Close()
+		if err != nil {
+			h.parent.Error(fmt.Errorf("failed to disconnect: %v", err))
+		}
+		return nil
+	}
+}
 
 func (h Handler) performConnect(clientId string, cleanStart bool) (assignedID string, sessionPresent bool, callerErr error) {
 	wait := make(chan struct{}, 1)
 	//delegate work to the handler's main goroutine as an action
 	h.actions <- func() error {
 		h.log.Debug("perform connect", zap.String("clientId", clientId), zap.Bool("clean start", cleanStart))
-		s, present, err := session.BindToSession(clientId, cleanStart, h)
+		s, present, err := session.BindToSession(clientId, cleanStart, &h)
 		if err != nil {
 			callerErr = err
 		} else {
@@ -133,7 +131,7 @@ func (h Handler) performConnect(clientId string, cleanStart bool) (assignedID st
 func (h Handler) connackWithError(err error) {
 	var connack packet.Connack
 	connack.SetSessionPresent(false)
-	connack.SetConnectReason(packet.UnspecifiedError)
+	connack.SetConnectReason(packet.ConnectUnspecifiedError)
 	connack.Props().Add(packet.NewProperty(
 		packet.ReasonString,
 		packet.StringPropPayload(fmt.Sprintf("%v", err)),
@@ -149,7 +147,7 @@ func (h Handler) connackWithSuccess(clientID string, sessionPresent bool) {
 	var connack packet.Connack
 	connack.SetSessionPresent(sessionPresent)
 	//TODO: Add assigned client id as prop
-	connack.SetConnectReason(packet.Success)
+	connack.SetConnectReason(packet.ConnectSuccess)
 	h.conn.Deliver(connack)
 }
 

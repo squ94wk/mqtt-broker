@@ -1,6 +1,7 @@
 package session
 
 import (
+	"github.com/squ94wk/mqtt-common/pkg/packet"
 	"go.uber.org/zap"
 )
 
@@ -95,8 +96,7 @@ func CleanSession(s *Session) {
 		// remove subscriptions
 		// look up will message
 		// deliver will message
-		// disconnect gracefully
-		//err := s.client.Disconnect(packet.SessionTakenOver)
+		s.client.Disconnect(packet.DisconnectSessionTakenOver, "")
 		return nil
 	}
 }
@@ -106,7 +106,7 @@ func SessionTakeover(clientID string, client client) {
 		// look up will message
 		// deliver will message
 		// disconnect gracefully
-		//err := s.client.Disconnect(packet.SessionTakenOver)
+		client.Disconnect(packet.DisconnectSessionTakenOver, "")
 		return nil
 	}
 }

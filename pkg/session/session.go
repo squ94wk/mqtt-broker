@@ -2,6 +2,8 @@ package session
 
 import (
 	"github.com/squ94wk/mqtt-broker/pkg/message"
+	"github.com/squ94wk/mqtt-common/pkg/packet"
+
 	"sync"
 )
 
@@ -13,6 +15,7 @@ type Session struct {
 
 type client interface {
 	Deliver(message.Message)
+	Disconnect(reason packet.DisconnectReason, reasonMsg string)
 }
 
 func (s Session) ClientID() string {

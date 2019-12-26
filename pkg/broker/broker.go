@@ -53,7 +53,7 @@ func (r *Broker) Error(err error) {
 func (r *Broker) OnNewConnection(conn net.Conn) {
 	r.log.Info("new connection")
 	newConn := connection.NewConnection(r, conn, r.log)
-	handler := client.NewHandler(r, newConn, r.log)
+	handler := client.NewHandler(r, &newConn, r.log)
 
 	go newConn.Start()
 	go handler.Start()

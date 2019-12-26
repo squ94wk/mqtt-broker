@@ -34,38 +34,41 @@ func NewConnection(parent parent, conn net.Conn, log *zap.Logger) Connection {
 	}
 }
 
-func (c Connection) Start() {
+func (c *Connection) Start() {
+	defer func() {
+		recover()
+		err := c.conn.Close()
+		if err != nil {
+			c.parent.Error(fmt.Errorf("failed to Close() client: %v", err))
+		}
+		c.log.Debug("disconnected client")
+	}()
+
 	c.log.Debug("client started")
 	wait := make(chan struct{}, 1)
 	go func() {
 		defer func() {
 			recover()
-			wait <- struct{}{}
 		}()
 		c.read()
+		wait <- struct{}{}
 	}()
 
 	for action := range c.actions {
 		err := action()
 		if err != nil {
 			c.handleError(err)
-			c.shutdown <- struct{}{}
 			break
 		}
 	}
 
-	<-wait
 	if c.finalAction != nil {
 		err := c.finalAction()
 		if err != nil {
 			c.parent.Error(fmt.Errorf("failed to perform final action: %v", err))
 		}
 	}
-
-	err := c.conn.Close()
-	if err != nil {
-		c.parent.Error(fmt.Errorf("failed to Close() client: %v", err))
-	}
+	<-wait
 }
 
 func (c Connection) Packets() <-chan func() (packet.Packet, error) {
@@ -82,7 +85,7 @@ func (c Connection) Deliver(pkt packet.Packet) {
 
 //DeliverFinally instructs that a packet is delivered after all actions are performed
 //and just before the tcp connection is closed.
-func (c Connection) DeliverFinally(pkt packet.Packet) {
+func (c *Connection) DeliverFinally(pkt packet.Packet) {
 	c.finalAction = func() error {
 		c.log.Debug("final action: deliver packet")
 		_, err := pkt.WriteTo(c.conn)
@@ -98,21 +101,15 @@ func (c Connection) Close() error {
 
 func (c Connection) read() {
 	for {
-		select {
-		case _ = <-c.shutdown:
-			return
-
-		default:
-			pkt, err := packet.ReadPacket(c.conn)
-			c.buf <- func() (packet.Packet, error) {
-				return pkt, err
-			}
-
-			if err != nil {
-				return
-			}
-			c.log.Debug("read packet", zap.String("packet", fmt.Sprintf("%+v", pkt)))
+		pkt, err := packet.ReadPacket(c.conn)
+		c.buf <- func() (packet.Packet, error) {
+			return pkt, err
 		}
+
+		if err != nil {
+			return
+		}
+		c.log.Debug("read packet", zap.String("packet", fmt.Sprintf("%+v", pkt)))
 	}
 }
 
@@ -128,8 +125,8 @@ func (c Connection) handleError(err error) {
 		c.log.Warn("unexpected error occured", zap.Error(err))
 	}
 
-	err = c.conn.Close()
-	if err != nil {
-		c.parent.Error(fmt.Errorf("failed to close connection after error: %v", err))
-	}
+	//err = c.conn.Close()
+	//if err != nil {
+	//	c.parent.Error(fmt.Errorf("failed to close connection after error: %v", err))
+	//}
 }
