@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/squ94wk/mqtt-broker/pkg/connection"
 	"github.com/squ94wk/mqtt-common/pkg/packet"
 	"github.com/squ94wk/mqtt-common/pkg/topic"
 
@@ -43,20 +42,18 @@ func (b *Broker) Error(err error) {
 
 func (b *Broker) OnNewConnection(conn net.Conn) {
 	b.log.Info("new connection")
-	newConn := connection.NewConnection(b, conn, b.log)
-	handler := client.NewClient(b, &newConn, b.log)
+	handler := client.NewClient(b, conn, b.log)
 
-	go newConn.Start()
 	go handler.Start()
 }
 
-func (b *Broker) PerformConnect(clientID string, cleanStart bool, client client.Client) (string, bool, error) {
-	assignedID, sessionPresent, err := b.sessionStore.RegisterNewSession(clientID, cleanStart)
+func (b *Broker) PerformConnect(clientID string, cleanStart bool, client *client.Client) (string, bool, error) {
+	assignedID, oldClient, err := b.sessionStore.RegisterNewSession(clientID, cleanStart, client)
 	if err != nil {
 		b.log.Error("failed to connect", zap.Error(err))
 	}
 
-	if !sessionPresent {
+	if oldClient == nil {
 		return assignedID, false, nil
 	}
 
@@ -65,7 +62,7 @@ func (b *Broker) PerformConnect(clientID string, cleanStart bool, client client.
 	} else {
 		b.replaceClient(clientID, client)
 	}
-	client.Disconnect(packet.DisconnectSessionTakenOver, "")
+	oldClient.Disconnect(packet.DisconnectSessionTakenOver, "")
 	return assignedID, true, nil
 }
 
@@ -77,6 +74,6 @@ func (b *Broker) cleanUpSession(clientID string) {
 
 }
 
-func (b *Broker) replaceClient(clientID string, client client.Client) {
+func (b *Broker) replaceClient(clientID string, client *client.Client) {
 
 }

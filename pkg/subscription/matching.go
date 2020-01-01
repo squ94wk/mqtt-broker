@@ -1,4 +1,5 @@
 package subscription
+
 //
 //import "github.com/squ94wk/mqtt-common/pkg/topic"
 //

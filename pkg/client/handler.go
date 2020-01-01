@@ -2,8 +2,8 @@ package client
 
 import (
 	"fmt"
+	"net"
 
-	"github.com/squ94wk/mqtt-broker/pkg/connection"
 	"github.com/squ94wk/mqtt-broker/pkg/message"
 	"github.com/squ94wk/mqtt-common/pkg/packet"
 	"github.com/squ94wk/mqtt-common/pkg/topic"
@@ -12,71 +12,86 @@ import (
 
 type parent interface {
 	Error(error)
-	PerformConnect(string, bool, Client) (string, bool, error)
+	PerformConnect(string, bool, *Client) (string, bool, error)
 	PerformSubscribe(uint16, topic.Filter, byte, bool, bool, byte) (packet.SubackReason, error)
 }
 
 type Client struct {
-	parent   parent
-	conn     *connection.Connection
-	state    state
-	actions  chan func() error
-	shutdown chan struct{}
-	log      *zap.Logger
+	parent  parent
+	conn    net.Conn
+	state   state
+	pkts    chan packet.Packet
+	errs    chan error
+	actions chan func() (bool, error)
+	close   chan struct{}
+	log     *zap.Logger
 }
 
 type state interface {
-	onPacket(Client, packet.Packet) (state, error)
-	onError(Client, error) state
+	onPacket(*Client, packet.Packet) (state, error)
+	onError(*Client, error) state
 }
 
-func NewClient(parent parent, conn *connection.Connection, log *zap.Logger) *Client {
+func NewClient(parent parent, conn net.Conn, log *zap.Logger) *Client {
 	return &Client{
-		parent:   parent,
-		conn:     conn,
-		state:    initial{},
-		actions:  make(chan func() error, 4),
-		shutdown: make(chan struct{}, 1),
-		log:      log,
+		parent:  parent,
+		conn:    conn,
+		state:   initial{},
+		actions: make(chan func() (bool, error), 4),
+		close:   make(chan struct{}, 1),
+		log:     log,
 	}
 }
 
-func (h Client) Start() {
-	h.log.Debug("client handler started")
+func (c Client) Start() {
+	c.log.Debug("client handler started")
+	go func() {
+		for {
+			pkt, err := packet.ReadPacket(c.conn)
+			if err != nil {
+				c.log.Error(fmt.Sprintf("failed to read packet: %v", err))
+				break
+			}
+			c.handleInboundPacket(pkt)
+		}
+		c.close <- struct{}{}
+	}()
+
+loop:
 	for {
 		select {
-		case _ = <-h.shutdown:
-			return
+		case _ = <-c.close:
+			break loop
 
-		case reading := <-h.conn.Packets():
-			pkt, err := reading()
+		case action := <-c.actions:
+			final, err := action()
 			if err != nil {
-				h.log.Error(fmt.Sprintf("failed to handle inbound packet: %v", err))
-				//TODO: handle properly
-				return
+				c.parent.Error(err)
+				break loop
 			}
-			h.handleInboundPacket(pkt) //state
-
-		case action := <-h.actions:
-			err := action()
-			if err != nil {
-				h.parent.Error(err)
-				return
+			if final {
+				break loop
 			}
 		}
 	}
+
+	err := c.conn.Close()
+	if err != nil {
+		c.parent.Error(fmt.Errorf("failed to close tcp connection: %v", err))
+	}
+	c.log.Debug("closed tcp connection")
 }
 
-func (h Client) Deliver(msg message.Message) {
-	h.actions <- func() error {
+func (c Client) Deliver(msg message.Message) {
+	c.actions <- func() (bool, error) {
 		//TODO: make publish packet
-		//h.conn.Deliver(pkt)
-		return nil
+		//c.conn.Deliver(pkt)
+		return false, nil
 	}
 }
 
-func (h Client) Disconnect(reason packet.DisconnectReason, reasonMsg string) {
-	h.actions <- func() error {
+func (c Client) Disconnect(reason packet.DisconnectReason, reasonMsg string) {
+	c.actions <- func() (bool, error) {
 		var disconnect packet.Disconnect
 		disconnect.SetDisconnectReason(reason)
 		props := packet.NewProperties()
@@ -84,43 +99,52 @@ func (h Client) Disconnect(reason packet.DisconnectReason, reasonMsg string) {
 			props.Add(packet.NewProperty(packet.ReasonString, packet.StringPropPayload(reasonMsg)))
 		}
 		disconnect.SetProps(props)
-		h.conn.DeliverFinally(disconnect)
-		err := h.conn.Close()
+		c.log.Debug("write packet")
+		_, err := disconnect.WriteTo(c.conn)
 		if err != nil {
-			h.parent.Error(fmt.Errorf("failed to disconnect: %v", err))
+			c.close <- struct{}{}
 		}
-		return nil
+		return true, nil
 	}
 }
 
-func (h Client) connackWithError(err error) {
+func (c Client) connackWithError(err error) {
 	var connack packet.Connack
 	connack.SetSessionPresent(false)
 	connack.SetConnectReason(packet.ConnectUnspecifiedError)
-	connack.Props().Add(packet.NewProperty(
-		packet.ReasonString,
-		packet.StringPropPayload(fmt.Sprintf("%v", err)),
+	connack.SetProps(packet.NewProperties(
+		packet.NewProperty(
+			packet.ReasonString,
+			packet.StringPropPayload(fmt.Sprintf("%v", err)),
+		),
 	))
-	h.conn.DeliverFinally(connack)
-	err = h.conn.Close()
+	_, err = connack.WriteTo(c.conn)
 	if err != nil {
-		h.parent.Error(fmt.Errorf("failed to close client after error: %v", err))
+		c.close <- struct{}{}
 	}
 }
 
-func (h Client) connackWithSuccess(clientID string, sessionPresent bool) {
+func (c Client) connackWithSuccess(clientID string, sessionPresent bool) {
 	var connack packet.Connack
 	connack.SetSessionPresent(sessionPresent)
-	//TODO: Add assigned client id as prop
+	connack.SetProps(packet.NewProperties(
+		packet.NewProperty(
+			packet.AssignedClientIdentifier,
+			packet.StringPropPayload(clientID),
+		),
+	))
 	connack.SetConnectReason(packet.ConnectSuccess)
-	h.conn.Deliver(connack)
+	_, err := connack.WriteTo(c.conn)
+	if err != nil {
+		c.close <- struct{}{}
+	}
 }
 
-func (h Client) handleInboundPacket(pkt packet.Packet) {
-	nextFlow, err := h.state.onPacket(h, pkt)
+func (c *Client) handleInboundPacket(pkt packet.Packet) {
+	nextState, err := c.state.onPacket(c, pkt)
 	if err != nil {
-		h.parent.Error(fmt.Errorf("failed to handle inbound packet: state reports error: %v", err))
+		c.parent.Error(fmt.Errorf("failed to handle inbound packet: state reports error: %v", err))
 		return
 	}
-	h.state = nextFlow
+	c.state = nextState
 }

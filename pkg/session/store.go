@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/squ94wk/mqtt-broker/pkg/client"
 	"go.uber.org/zap"
 )
 
@@ -53,7 +54,7 @@ func (s Store) Shutdown() {
 	s.shutdown <- struct{}{}
 }
 
-func (s Store) RegisterNewSession(clientID string, cleanStart bool) (assignedID string, sessionPresent bool, callerErr error) {
+func (s Store) RegisterNewSession(clientID string, cleanStart bool, client *client.Client) (assignedID string, oldClient *client.Client, callerErr error) {
 	wait := make(chan struct{}, 1)
 	actions <- func(s *Store) error {
 		defer func() {
@@ -70,19 +71,21 @@ func (s Store) RegisterNewSession(clientID string, cleanStart bool) (assignedID 
 			newSession = Session{
 				clientID:   clientID,
 				lastActive: time.Now(),
+				client:     client,
 			}
 		} else {
 			newSession = copySession(existingSession)
 		}
 		s.sessions[clientID] = newSession
 
-		sessionPresent = ok
+		if ok {
+			oldClient = existingSession.client
+		}
 		return nil
 	}
 	//TODO: select on cancel context here?
 	<-wait
 	return
-
 }
 
 func (s Store) getFreeClientID() string {

@@ -10,7 +10,7 @@ import (
 
 type connected struct{}
 
-func (c connected) onPacket(h Client, pkt packet.Packet) (state, error) {
+func (c connected) onPacket(h *Client, pkt packet.Packet) (state, error) {
 	switch pkt.(type) {
 	case *packet.Subscribe:
 		subscribe := pkt.(*packet.Subscribe)
@@ -57,7 +57,7 @@ func (c connected) onPacket(h Client, pkt packet.Packet) (state, error) {
 	return c, nil
 }
 
-func (c connected) onError(h Client, err error) state {
+func (c connected) onError(h *Client, err error) state {
 	h.parent.Error(err)
 	return c
 }

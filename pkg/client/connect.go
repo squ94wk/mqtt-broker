@@ -13,7 +13,7 @@ type connectReqAuth struct {
 	action func() error
 }
 
-func (c initial) onPacket(h Client, pkt packet.Packet) (state, error) {
+func (c initial) onPacket(h *Client, pkt packet.Packet) (state, error) {
 	connect, ok := pkt.(*packet.Connect)
 	if !ok {
 		return nil, fmt.Errorf("TODO: expect connect")
@@ -46,14 +46,14 @@ func (c initial) onPacket(h Client, pkt packet.Packet) (state, error) {
 	return connected{}, nil
 }
 
-func (c initial) onError(h Client, err error) state {
+func (c initial) onError(h *Client, err error) state {
 	h.parent.Error(err)
 
 	h.connackWithError(fmt.Errorf("received error in connect state: %v", err))
 	return nil
 }
 
-func (a connectReqAuth) onPacket(h Client, pkt packet.Packet) (state, error) {
+func (a connectReqAuth) onPacket(h *Client, pkt packet.Packet) (state, error) {
 	h.log.Debug("authenticating")
 	err := a.action()
 	if err != nil {
@@ -62,7 +62,7 @@ func (a connectReqAuth) onPacket(h Client, pkt packet.Packet) (state, error) {
 	return connected{}, nil
 }
 
-func (a connectReqAuth) onError(h Client, err error) state {
+func (a connectReqAuth) onError(h *Client, err error) state {
 	h.log.Debug("error @ onError", zap.Error(err))
 	return nil
 }
