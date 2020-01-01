@@ -2,10 +2,12 @@ package broker
 
 import (
 	"fmt"
-	"github.com/squ94wk/mqtt-broker/pkg/connection"
 	"net"
 
-	"github.com/squ94wk/mqtt-broker/pkg/actor"
+	"github.com/squ94wk/mqtt-broker/pkg/connection"
+	"github.com/squ94wk/mqtt-common/pkg/packet"
+	"github.com/squ94wk/mqtt-common/pkg/topic"
+
 	"github.com/squ94wk/mqtt-broker/pkg/client"
 	"github.com/squ94wk/mqtt-broker/pkg/listener"
 	"github.com/squ94wk/mqtt-broker/pkg/log"
@@ -14,7 +16,9 @@ import (
 )
 
 type Broker struct {
-	log *zap.Logger
+	sessionStore *session.Store
+	listener     *listener.Handler
+	log          *zap.Logger
 }
 
 func NewBroker() Broker {
@@ -23,42 +27,56 @@ func NewBroker() Broker {
 	}
 }
 
-func (r Broker) Start() {
-	listenerHandlers := actor.NewScaleGroup(func() actor.Actor {
-		handler := listener.NewHandler(&r, r.log)
-		return &handler
-	})
+func (b *Broker) Start() {
+	b.listener = listener.NewHandler(b, b.log)
+	b.sessionStore = session.NewStore(b, b.log)
 
-	//client := actor.NewScaleGroup(func() actor.Actor {
-	//actor := action.NewHandler(&r, r.log)
-	//return &actor
-	//})
-
-	sessionHandlers := actor.NewScaleGroup(func() actor.Actor {
-		handler := session.NewHandler(&r, r.log)
-		return &handler
-	})
-
-	listenerHandlers.Add()
-	//client.Add()
-	sessionHandlers.Add()
+	go b.listener.Start()
+	go b.sessionStore.Start()
 
 	select {}
 }
 
-func (r *Broker) Error(err error) {
-	r.log.Error(fmt.Sprintf("error occured %v", err))
+func (b *Broker) Error(err error) {
+	b.log.Error(fmt.Sprintf("error occured %v", err))
 }
 
-func (r *Broker) OnNewConnection(conn net.Conn) {
-	r.log.Info("new connection")
-	newConn := connection.NewConnection(r, conn, r.log)
-	handler := client.NewHandler(r, &newConn, r.log)
+func (b *Broker) OnNewConnection(conn net.Conn) {
+	b.log.Info("new connection")
+	newConn := connection.NewConnection(b, conn, b.log)
+	handler := client.NewClient(b, &newConn, b.log)
 
 	go newConn.Start()
 	go handler.Start()
 }
 
-func (r *Broker) SessionTakeover(s string) {
+func (b *Broker) PerformConnect(clientID string, cleanStart bool, client client.Client) (string, bool, error) {
+	assignedID, sessionPresent, err := b.sessionStore.RegisterNewSession(clientID, cleanStart)
+	if err != nil {
+		b.log.Error("failed to connect", zap.Error(err))
+	}
+
+	if !sessionPresent {
+		return assignedID, false, nil
+	}
+
+	if cleanStart {
+		b.cleanUpSession(clientID)
+	} else {
+		b.replaceClient(clientID, client)
+	}
+	client.Disconnect(packet.DisconnectSessionTakenOver, "")
+	return assignedID, true, nil
+}
+
+func (b *Broker) PerformSubscribe(packetID uint16, filter topic.Filter, maxQoS byte, noLocal bool, retainAsPublished bool, retainHandling byte) (packet.SubackReason, error) {
+	return packet.SubackGrantedQoS0, nil
+}
+
+func (b *Broker) cleanUpSession(clientID string) {
+
+}
+
+func (b *Broker) replaceClient(clientID string, client client.Client) {
 
 }

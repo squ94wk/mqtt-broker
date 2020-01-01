@@ -7,13 +7,13 @@ import (
 	"go.uber.org/zap"
 )
 
-type connecting struct{}
-type requireAuth struct {
+type initial struct{}
+type connectReqAuth struct {
 	method string
 	action func() error
 }
 
-func (c connecting) onPacket(h Handler, pkt packet.Packet) (flow, error) {
+func (c initial) onPacket(h Client, pkt packet.Packet) (state, error) {
 	connect, ok := pkt.(*packet.Connect)
 	if !ok {
 		return nil, fmt.Errorf("TODO: expect connect")
@@ -21,7 +21,7 @@ func (c connecting) onPacket(h Handler, pkt packet.Packet) (flow, error) {
 
 	// TODO: refactor
 	action := func() error {
-		assignedID, sessionPresent, err := h.performConnect(connect.Payload().ClientID(), connect.CleanStart())
+		assignedID, sessionPresent, err := h.parent.PerformConnect(connect.Payload().ClientID(), connect.CleanStart(), h)
 		if err != nil {
 			h.connackWithError(err)
 			return nil
@@ -33,7 +33,7 @@ func (c connecting) onPacket(h Handler, pkt packet.Packet) (flow, error) {
 	prop, ok := connect.Props()[packet.AuthenticationMethod]
 	if ok {
 		authMethod := prop[0].Payload().(packet.StringPropPayload)
-		return requireAuth{
+		return connectReqAuth{
 			method: string(authMethod),
 			action: action,
 		}, nil
@@ -43,23 +43,26 @@ func (c connecting) onPacket(h Handler, pkt packet.Packet) (flow, error) {
 	if err != nil {
 		return nil, err
 	}
-	return nil, nil
+	return connected{}, nil
 }
 
-func (c connecting) onError(h Handler, err error) flow {
+func (c initial) onError(h Client, err error) state {
 	h.parent.Error(err)
 
-	h.connackWithError(fmt.Errorf("received error in connect flow: %v", err))
+	h.connackWithError(fmt.Errorf("received error in connect state: %v", err))
 	return nil
 }
 
-func (a requireAuth) onPacket(h Handler, pkt packet.Packet) (flow, error) {
+func (a connectReqAuth) onPacket(h Client, pkt packet.Packet) (state, error) {
 	h.log.Debug("authenticating")
-	a.action()
-	return nil, nil
+	err := a.action()
+	if err != nil {
+		h.log.Error("failed to connect", zap.Error(err))
+	}
+	return connected{}, nil
 }
 
-func (a requireAuth) onError(h Handler, err error) flow {
+func (a connectReqAuth) onError(h Client, err error) state {
 	h.log.Debug("error @ onError", zap.Error(err))
 	return nil
 }

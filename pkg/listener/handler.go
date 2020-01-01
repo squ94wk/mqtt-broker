@@ -23,8 +23,8 @@ type Handler struct {
 	shutdown chan struct{}
 }
 
-func NewHandler(parent Parent, log *zap.Logger) Handler {
-	return Handler{
+func NewHandler(parent Parent, log *zap.Logger) *Handler {
+	return &Handler{
 		parent: parent,
 		log:    log,
 		listener: struct {

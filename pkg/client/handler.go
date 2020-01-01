@@ -5,41 +5,43 @@ import (
 
 	"github.com/squ94wk/mqtt-broker/pkg/connection"
 	"github.com/squ94wk/mqtt-broker/pkg/message"
-	"github.com/squ94wk/mqtt-broker/pkg/session"
 	"github.com/squ94wk/mqtt-common/pkg/packet"
+	"github.com/squ94wk/mqtt-common/pkg/topic"
 	"go.uber.org/zap"
 )
 
 type parent interface {
 	Error(error)
+	PerformConnect(string, bool, Client) (string, bool, error)
+	PerformSubscribe(uint16, topic.Filter, byte, bool, bool, byte) (packet.SubackReason, error)
 }
 
-type Handler struct {
+type Client struct {
 	parent   parent
 	conn     *connection.Connection
-	flow     flow
+	state    state
 	actions  chan func() error
 	shutdown chan struct{}
 	log      *zap.Logger
 }
 
-type flow interface {
-	onPacket(Handler, packet.Packet) (flow, error)
-	onError(Handler, error) flow
+type state interface {
+	onPacket(Client, packet.Packet) (state, error)
+	onError(Client, error) state
 }
 
-func NewHandler(parent parent, conn *connection.Connection, log *zap.Logger) Handler {
-	return Handler{
+func NewClient(parent parent, conn *connection.Connection, log *zap.Logger) *Client {
+	return &Client{
 		parent:   parent,
 		conn:     conn,
-		flow:     connecting{},
+		state:    initial{},
 		actions:  make(chan func() error, 4),
 		shutdown: make(chan struct{}, 1),
 		log:      log,
 	}
 }
 
-func (h Handler) Start() {
+func (h Client) Start() {
 	h.log.Debug("client handler started")
 	for {
 		select {
@@ -53,7 +55,7 @@ func (h Handler) Start() {
 				//TODO: handle properly
 				return
 			}
-			h.handleInboundPacket(pkt) //flow
+			h.handleInboundPacket(pkt) //state
 
 		case action := <-h.actions:
 			err := action()
@@ -65,7 +67,7 @@ func (h Handler) Start() {
 	}
 }
 
-func (h Handler) Deliver(msg message.Message) {
+func (h Client) Deliver(msg message.Message) {
 	h.actions <- func() error {
 		//TODO: make publish packet
 		//h.conn.Deliver(pkt)
@@ -73,7 +75,7 @@ func (h Handler) Deliver(msg message.Message) {
 	}
 }
 
-func (h Handler) Disconnect(reason packet.DisconnectReason, reasonMsg string) {
+func (h Client) Disconnect(reason packet.DisconnectReason, reasonMsg string) {
 	h.actions <- func() error {
 		var disconnect packet.Disconnect
 		disconnect.SetDisconnectReason(reason)
@@ -91,29 +93,7 @@ func (h Handler) Disconnect(reason packet.DisconnectReason, reasonMsg string) {
 	}
 }
 
-func (h Handler) performConnect(clientId string, cleanStart bool) (string, bool, error) {
-	//delegate work to the handler's main goroutine as an action
-	h.log.Debug("perform connect", zap.String("clientId", clientId), zap.Bool("clean start", cleanStart))
-	s, present, err := session.BindToSession(clientId, cleanStart, &h)
-	if err != nil {
-		return "", false, err
-	}
-	return s.ClientID(), present, nil
-	// session (clean start or persisted)
-	//   assigned client id
-
-	// Connect Action
-	// session takeover:
-	//   will message
-	//   disconnect packet
-	// finish
-	//   connack
-	// post finish
-	//   message delivery
-	//   keep alive monitoring
-}
-
-func (h Handler) connackWithError(err error) {
+func (h Client) connackWithError(err error) {
 	var connack packet.Connack
 	connack.SetSessionPresent(false)
 	connack.SetConnectReason(packet.ConnectUnspecifiedError)
@@ -128,7 +108,7 @@ func (h Handler) connackWithError(err error) {
 	}
 }
 
-func (h Handler) connackWithSuccess(clientID string, sessionPresent bool) {
+func (h Client) connackWithSuccess(clientID string, sessionPresent bool) {
 	var connack packet.Connack
 	connack.SetSessionPresent(sessionPresent)
 	//TODO: Add assigned client id as prop
@@ -136,11 +116,11 @@ func (h Handler) connackWithSuccess(clientID string, sessionPresent bool) {
 	h.conn.Deliver(connack)
 }
 
-func (h Handler) handleInboundPacket(pkt packet.Packet) {
-	nextFlow, err := h.flow.onPacket(h, pkt)
+func (h Client) handleInboundPacket(pkt packet.Packet) {
+	nextFlow, err := h.state.onPacket(h, pkt)
 	if err != nil {
-		h.parent.Error(fmt.Errorf("failed to handle inbound packet: flow reports error: %v", err))
+		h.parent.Error(fmt.Errorf("failed to handle inbound packet: state reports error: %v", err))
 		return
 	}
-	h.flow = nextFlow
+	h.state = nextFlow
 }
