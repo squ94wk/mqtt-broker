@@ -70,14 +70,16 @@ func (s Store) RegisterNewSession(clientID string, cleanStart bool, client *clie
 		existingSession, ok := s.sessions[clientID]
 
 		var newSession Session
-		if cleanStart {
+		if cleanStart || !ok {
 			newSession = Session{
 				clientID:   clientID,
 				lastActive: time.Now(),
 				client:     client,
+				subscriptions: make(map[string]subscription.Subscription),
 			}
 		} else {
 			newSession = copySession(existingSession)
+			newSession.client = client
 		}
 		s.sessions[clientID] = newSession
 
