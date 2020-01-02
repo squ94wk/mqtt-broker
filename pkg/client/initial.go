@@ -13,7 +13,7 @@ type connectReqAuth struct {
 	action func() error
 }
 
-func (c initial) onPacket(h *Client, pkt packet.Packet) (state, error) {
+func (c initial) onPacket(client *Client, pkt packet.Packet) (state, error) {
 	connect, ok := pkt.(*packet.Connect)
 	if !ok {
 		return nil, fmt.Errorf("TODO: expect connect")
@@ -21,13 +21,14 @@ func (c initial) onPacket(h *Client, pkt packet.Packet) (state, error) {
 
 	// TODO: refactor
 	action := func() error {
-		assignedID, sessionPresent, err := h.parent.PerformConnect(connect.Payload().ClientID(), connect.CleanStart(), h)
+		assignedID, sessionPresent, err := client.parent.PerformConnect(connect.Payload().ClientID(), connect.CleanStart(), client)
 		if err != nil {
-			h.connackWithError(err)
+			client.connackWithError(err)
 			return nil
 		}
 
-		h.connackWithSuccess(assignedID, sessionPresent)
+		client.clientID = assignedID
+		client.connackWithSuccess(assignedID, sessionPresent)
 		return nil
 	}
 	prop, ok := connect.Props()[packet.AuthenticationMethod]
@@ -46,23 +47,23 @@ func (c initial) onPacket(h *Client, pkt packet.Packet) (state, error) {
 	return connected{}, nil
 }
 
-func (c initial) onError(h *Client, err error) state {
-	h.parent.Error(err)
+func (c initial) onError(client *Client, err error) state {
+	client.parent.Error(err)
 
-	h.connackWithError(fmt.Errorf("received error in connect state: %v", err))
+	client.connackWithError(fmt.Errorf("received error in connect state: %v", err))
 	return nil
 }
 
-func (a connectReqAuth) onPacket(h *Client, pkt packet.Packet) (state, error) {
-	h.log.Debug("authenticating")
+func (a connectReqAuth) onPacket(client *Client, pkt packet.Packet) (state, error) {
+	client.log.Debug("authenticating")
 	err := a.action()
 	if err != nil {
-		h.log.Error("failed to connect", zap.Error(err))
+		client.log.Error("failed to connect", zap.Error(err))
 	}
 	return connected{}, nil
 }
 
-func (a connectReqAuth) onError(h *Client, err error) state {
-	h.log.Debug("error @ onError", zap.Error(err))
+func (a connectReqAuth) onError(client *Client, err error) state {
+	client.log.Debug("error @ onError", zap.Error(err))
 	return nil
 }

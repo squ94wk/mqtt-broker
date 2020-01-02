@@ -13,18 +13,19 @@ import (
 type parent interface {
 	Error(error)
 	PerformConnect(string, bool, *Client) (string, bool, error)
-	PerformSubscribe(uint16, topic.Filter, byte, bool, bool, byte) (packet.SubackReason, error)
+	PerformSubscribe(string, uint16, topic.Filter, byte, bool, bool, byte, *Client) (packet.SubackReason, error)
 }
 
 type Client struct {
-	parent  parent
-	conn    net.Conn
-	state   state
-	pkts    chan packet.Packet
-	errs    chan error
-	actions chan func() (bool, error)
-	close   chan struct{}
-	log     *zap.Logger
+	parent   parent
+	clientID string
+	conn     net.Conn
+	state    state
+	pkts     chan packet.Packet
+	errs     chan error
+	actions  chan func() (bool, error)
+	close    chan struct{}
+	log      *zap.Logger
 }
 
 type state interface {
@@ -141,10 +142,13 @@ func (c Client) connackWithSuccess(clientID string, sessionPresent bool) {
 }
 
 func (c *Client) handleInboundPacket(pkt packet.Packet) {
-	nextState, err := c.state.onPacket(c, pkt)
-	if err != nil {
-		c.parent.Error(fmt.Errorf("failed to handle inbound packet: state reports error: %v", err))
-		return
+	c.actions <- func() (bool, error) {
+		nextState, err := c.state.onPacket(c, pkt)
+		if err != nil {
+			c.parent.Error(fmt.Errorf("failed to handle inbound packet: state reports error: %v", err))
+			return true, err
+		}
+		c.state = nextState
+		return false, nil
 	}
-	c.state = nextState
 }
