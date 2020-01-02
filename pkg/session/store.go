@@ -93,7 +93,7 @@ func (s Store) RegisterNewSession(clientID string, cleanStart bool, client *clie
 	return
 }
 
-func (s *Store) RegisterSubscription(clientID string, filter topic.Filter, maxQoS byte, noLocal bool, retainAsPublished bool) (callerErr error) {
+func (s *Store) RegisterSubscription(clientID string, filter topic.Filter, maxQoS byte, noLocal bool, retainAsPublished bool) (replacedSub bool, callerErr error) {
 	wait := make(chan struct{}, 1)
 	actions <- func(s *Store) error {
 		session, ok := s.sessions[clientID]
@@ -102,7 +102,11 @@ func (s *Store) RegisterSubscription(clientID string, filter topic.Filter, maxQo
 			return nil
 		}
 		sub := subscription.NewSubscription(filter, maxQoS, noLocal, retainAsPublished)
-		session.subscriptions = append(session.subscriptions, sub)
+		_, ok = session.subscriptions[filter.String()]
+		if ok {
+			replacedSub = true
+		}
+		session.subscriptions[filter.String()] = sub
 		wait <- struct{}{}
 		return nil
 	}

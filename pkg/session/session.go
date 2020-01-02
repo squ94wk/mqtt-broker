@@ -9,7 +9,7 @@ import (
 
 type Session struct {
 	clientID      string // existence of a session is only based on this
-	subscriptions []subscription.Subscription
+	subscriptions map[string]subscription.Subscription
 	lastActive    time.Time // for keep alive monitoring
 	client        *client.Client
 }

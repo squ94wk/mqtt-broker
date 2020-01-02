@@ -13,7 +13,7 @@ import (
 type parent interface {
 	Error(error)
 	PerformConnect(string, bool, *Client) (string, bool, error)
-	PerformSubscribe(string, uint16, topic.Filter, byte, bool, bool, byte, *Client) (packet.SubackReason, error)
+	PerformSubscribe(string, uint16, topic.Filter, byte, bool, bool, byte, *Client) (bool, packet.SubackReason, error)
 }
 
 type Client struct {

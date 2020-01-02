@@ -5,6 +5,7 @@ import (
 
 	"github.com/squ94wk/mqtt-common/pkg/packet"
 	"github.com/squ94wk/mqtt-common/pkg/topic"
+	"go.uber.org/zap"
 )
 
 type connected struct{}
@@ -20,12 +21,14 @@ func (c connected) onPacket(client *Client, pkt packet.Packet) (state, error) {
 				reasons[i] = packet.SubackTopicFilterInvalid
 				continue
 			}
-			grantedQoS, err := client.parent.PerformSubscribe(client.clientID, subscribe.PacketID(), parsedFilter, filter.MaxQoS(), filter.NoLocal(), filter.RetainAsPublished(), filter.RetainHandling(), client)
-			//switch {
-			//case retainHandling == packet.RetainHandlingAlways: fallthrough
-			//case retainHandling == packet.RetainHandlingIfNotPresent:
-			//	sendRetainedMessage()
-			//}
+			replacedSub, grantedQoS, err := client.parent.PerformSubscribe(client.clientID, subscribe.PacketID(), parsedFilter, filter.MaxQoS(), filter.NoLocal(), filter.RetainAsPublished(), filter.RetainHandling(), client)
+			switch {
+			case filter.RetainHandling() == packet.RetainHandlingAlways:
+				fallthrough
+			case filter.RetainHandling() == packet.RetainHandlingIfNotPresent && replacedSub:
+				client.log.Debug("todo: queue retained message of topics that match filter", zap.String("filter", filter.Filter()))
+				//sendRetainedMessage()
+			}
 			if err != nil {
 				reasons[i] = packet.SubackImplementationSpecificError
 				continue

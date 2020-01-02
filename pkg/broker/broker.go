@@ -66,12 +66,12 @@ func (b *Broker) PerformConnect(clientID string, cleanStart bool, client *client
 	return assignedID, true, nil
 }
 
-func (b *Broker) PerformSubscribe(clientID string, packetID uint16, filter topic.Filter, maxQoS byte, noLocal bool, retainAsPublished bool, retainHandling byte, client *client.Client) (packet.SubackReason, error) {
-	err := b.sessionStore.RegisterSubscription(clientID, filter, maxQoS, noLocal, retainAsPublished)
+func (b *Broker) PerformSubscribe(clientID string, packetID uint16, filter topic.Filter, maxQoS byte, noLocal bool, retainAsPublished bool, retainHandling byte, client *client.Client) (bool, packet.SubackReason, error) {
+	replaced, err := b.sessionStore.RegisterSubscription(clientID, filter, maxQoS, noLocal, retainAsPublished)
 	if err != nil {
-		return packet.SubackImplementationSpecificError, nil
+		return replaced, packet.SubackImplementationSpecificError, nil
 	}
-	return packet.SubackGrantedQoS0, nil
+	return replaced, packet.SubackGrantedQoS0, nil
 }
 
 func (b *Broker) cleanUpSession(clientID string) {
