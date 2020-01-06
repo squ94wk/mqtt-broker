@@ -5,15 +5,16 @@ import (
 	"net"
 
 	"github.com/squ94wk/mqtt-broker/pkg/message"
+	"github.com/squ94wk/mqtt-broker/pkg/subscription"
 	"github.com/squ94wk/mqtt-common/pkg/packet"
-	"github.com/squ94wk/mqtt-common/pkg/topic"
 	"go.uber.org/zap"
 )
 
 type parent interface {
 	Error(error)
 	PerformConnect(string, bool, *Client) (string, bool, error)
-	PerformSubscribe(string, uint16, topic.Filter, byte, bool, bool, byte, *Client) (bool, packet.SubackReason, error)
+	PerformSubscribe(string, subscription.Subscription, *Client) (bool, packet.SubackReason, error)
+	InboundMessage(message.Message)
 }
 
 type Client struct {
@@ -85,8 +86,16 @@ loop:
 
 func (c Client) Deliver(msg message.Message) {
 	c.actions <- func() (bool, error) {
-		//TODO: make publish packet
-		//c.conn.Deliver(pkt)
+		var publish packet.Publish
+		publish.SetTopic(msg.Topic())
+		publish.SetPayload(msg.Payload())
+		publish.SetQoS(msg.QoS())
+		publish.SetPacketID(1) //todo
+		publish.SetProps(packet.NewProperties())
+		_, err := publish.WriteTo(c.conn)
+		if err != nil {
+			c.log.Error("failed to deliver publish message", zap.Error(err))
+		}
 		return false, nil
 	}
 }

@@ -3,6 +3,8 @@ package client
 import (
 	"fmt"
 
+	"github.com/squ94wk/mqtt-broker/pkg/message"
+	"github.com/squ94wk/mqtt-broker/pkg/subscription"
 	"github.com/squ94wk/mqtt-common/pkg/packet"
 	"github.com/squ94wk/mqtt-common/pkg/topic"
 	"go.uber.org/zap"
@@ -21,7 +23,8 @@ func (c connected) onPacket(client *Client, pkt packet.Packet) (state, error) {
 				reasons[i] = packet.SubackTopicFilterInvalid
 				continue
 			}
-			replacedSub, grantedQoS, err := client.parent.PerformSubscribe(client.clientID, subscribe.PacketID(), parsedFilter, filter.MaxQoS(), filter.NoLocal(), filter.RetainAsPublished(), filter.RetainHandling(), client)
+			sub := subscription.NewSubscription(parsedFilter, filter.MaxQoS(), filter.NoLocal(), filter.RetainAsPublished())
+			replacedSub, grantedQoS, err := client.parent.PerformSubscribe(client.clientID, sub, client)
 			switch {
 			case filter.RetainHandling() == packet.RetainHandlingAlways:
 				fallthrough
@@ -58,7 +61,14 @@ func (c connected) onPacket(client *Client, pkt packet.Packet) (state, error) {
 		return c, nil
 
 	//case *packet.Unsubscribe:
-	//case *packet.Publish:
+	case *packet.Publish:
+		publish := pkt.(*packet.Publish)
+		msg := message.NewMessage(client.clientID, publish.Topic(), publish.QoS(), publish.Payload())
+		if publish.Retain() {
+			//client.parent.RetainMessage(msg)
+		}
+		client.parent.InboundMessage(msg)
+		return c, nil
 	//case *packet.PubAck:
 	//case *packet.PubRec:
 	//case *packet.PubComp:

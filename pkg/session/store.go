@@ -7,7 +7,6 @@ import (
 
 	"github.com/squ94wk/mqtt-broker/pkg/client"
 	"github.com/squ94wk/mqtt-broker/pkg/subscription"
-	"github.com/squ94wk/mqtt-common/pkg/topic"
 	"go.uber.org/zap"
 )
 
@@ -93,7 +92,7 @@ func (s Store) RegisterNewSession(clientID string, cleanStart bool, client *clie
 	return
 }
 
-func (s *Store) RegisterSubscription(clientID string, filter topic.Filter, maxQoS byte, noLocal bool, retainAsPublished bool) (replacedSub bool, callerErr error) {
+func (s *Store) RegisterSubscription(sub subscription.Subscription, clientID string) (replacedSub bool, callerErr error) {
 	wait := make(chan struct{}, 1)
 	actions <- func(s *Store) error {
 		session, ok := s.sessions[clientID]
@@ -101,12 +100,11 @@ func (s *Store) RegisterSubscription(clientID string, filter topic.Filter, maxQo
 			callerErr = fmt.Errorf("can't register a subscription: no session with clinetID '%s' exists", clientID)
 			return nil
 		}
-		sub := subscription.NewSubscription(filter, maxQoS, noLocal, retainAsPublished)
-		_, ok = session.subscriptions[filter.String()]
+		_, ok = session.subscriptions[sub.Filter().String()]
 		if ok {
 			replacedSub = true
 		}
-		session.subscriptions[filter.String()] = sub
+		session.subscriptions[sub.Filter().String()] = sub
 		wait <- struct{}{}
 		return nil
 	}
